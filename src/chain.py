@@ -1,27 +1,17 @@
-from langchain.chains import ConversationalRetrievalChain
-from langchain.memory import ConversationBufferMemory
-
-from src.llm import load_llm
-from src.vectorstore import load_vectorstore
-from src.prompt import PROMPT
-
+from langchain.chains import RetrievalQA
+from .llm import load_llm
+from .vectorstore import load_vectorstore
+from .retriever import load_retriever
+from .prompt import load_prompt
 
 def build_chain():
     llm = load_llm()
-    db = load_vectorstore()
+    vectorstore = load_vectorstore()
+    retriever = load_retriever(vectorstore)
+    prompt = load_prompt()
 
-    retriever = db.as_retriever(search_kwargs={"k": 2})
-
-    memory = ConversationBufferMemory(
-        memory_key="chat_history",
-        return_messages=True
-    )
-
-    qa_chain = ConversationalRetrievalChain.from_llm(
+    return RetrievalQA.from_chain_type(
         llm=llm,
         retriever=retriever,
-        memory=memory,
-        combine_docs_chain_kwargs={"prompt": PROMPT}
+        chain_type_kwargs={"prompt": prompt}
     )
-
-    return qa_chain
