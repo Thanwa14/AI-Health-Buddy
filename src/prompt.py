@@ -26,12 +26,12 @@ Context:
 {context}
 
 คำถามผู้ใช้:
-{question}
+{query}
 
 คำตอบ:
 """
 
     return PromptTemplate(
         template=template,
-        input_variables=["context", "question"]
+        input_variables=["context", "query"]
     )
