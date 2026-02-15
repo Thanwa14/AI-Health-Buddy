@@ -64,19 +64,23 @@ if user_input:
         st.markdown(user_input)
 
     # ตอบกลับ
-    with st.chat_message("assistant"):
-        with st.spinner("🧠 กำลังวิเคราะห์อาการ..."):
-            try:
-                result = st.session_state.qa.invoke({"query": user_input})
+with st.chat_message("assistant"):
+    with st.spinner("🧠 กำลังวิเคราะห์อาการ..."):
+        try:
+            result = st.session_state.qa.invoke({"query": user_input})
+
+            # 🔒 Strict RAG Guard
+            source_docs = result.get("source_documents")
+
+            if not source_docs:
+                answer = "ขออภัย ข้อมูลในระบบไม่เพียงพอสำหรับการแนะนำ"
+            else:
                 answer = result.get("result") or result.get("answer")
-            except Exception as e:
-                answer = f"❌ เกิดข้อผิดพลาด: {e}"
 
-            st.markdown(answer)
+        except Exception as e:
+            answer = f"❌ เกิดข้อผิดพลาด: {e}"
 
-    st.session_state.messages.append(
-        {"role": "assistant", "content": answer}
-    )
+        st.markdown(answer)
 
 st.divider()
 st.caption("⚠️ ข้อมูลนี้เป็นเพียงคำแนะนำเบื้องต้น ไม่ใช่การวินิจฉัยทางการแพทย์")
