@@ -4,6 +4,8 @@ import os
 from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
+from langchain_community.document_loaders import TextLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
 from langchain.memory import ConversationBufferMemory
@@ -18,12 +20,11 @@ st.set_page_config(
 st.title("🩺 AI Health Buddy")
 st.caption("เภสัชกรอัจฉริยะ (Groq • RAG • Chat)")
 
-# ================== CHECK DB ==================
-CHROMA_DIR = "./chroma_db"
+# ================== LOAD API KEY ==================
+groq_api_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
 
-if not os.path.exists(CHROMA_DIR):
-    st.error("❌ ไม่พบ Vector DB (chroma_db)")
-    st.info("👉 กรุณาสร้าง Vector DB ก่อน")
+if not groq_api_key:
+    st.error("❌ ไม่พบ GROQ_API_KEY กรุณาใส่ใน Streamlit Secrets")
     st.stop()
 
 # ================== PROMPT ==================
@@ -55,18 +56,34 @@ PROMPT = PromptTemplate(
 # ================== LOAD SYSTEM ==================
 @st.cache_resource
 def load_system():
+
+    # LLM
     llm = ChatGroq(
+        groq_api_key=groq_api_key,
         model_name="llama-3.3-70b-versatile",
         temperature=0.2
     )
 
+    # Embeddings
     embeddings = HuggingFaceEmbeddings(
         model_name="sentence-transformers/all-MiniLM-L6-v2"
     )
 
-    db = Chroma(
-        persist_directory=CHROMA_DIR,
-        embedding_function=embeddings
+    # โหลดไฟล์ knowledge
+    loader = TextLoader("data/clean_knowledge.txt", encoding="utf-8")
+    documents = loader.load()
+
+    # แบ่งข้อความ
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=100
+    )
+    texts = text_splitter.split_documents(documents)
+
+    # สร้าง Vector DB แบบ runtime
+    db = Chroma.from_documents(
+        texts,
+        embeddings
     )
 
     retriever = db.as_retriever(search_kwargs={"k": 2})
@@ -84,6 +101,7 @@ def load_system():
     )
 
     return qa_chain
+
 
 qa = load_system()
 
