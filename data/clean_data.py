@@ -10,7 +10,6 @@ print(f"🔄 กำลังอ่านไฟล์: {INPUT_FILE}")
 try:
     df = pd.read_csv(INPUT_FILE)
     
-    # เลือกคอลัมน์ (ปรับให้ตรงกับไฟล์ CSV ของคุณ)
     useful_cols = ['Name', 'Category', 'Indication', 'Classification', 'Strength', 'Dosage Form']
     df_clean = df[useful_cols].dropna()
 

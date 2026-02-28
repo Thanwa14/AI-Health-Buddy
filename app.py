@@ -1,79 +1,34 @@
-import streamlit as st
 import os
-from dotenv import load_dotenv
+import gradio as gr
+from src.chain import build_chain
 
-load_dotenv()
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# ================== CONFIG ==================
-def get_env(key: str):
-    return os.getenv(key) or st.secrets.get(key)
+qa = build_chain(api_key=GROQ_API_KEY)
 
-GROQ_API_KEY = get_env("GROQ_API_KEY")
+def respond(message, history):
+    try:
+        result = qa.invoke({"query": message})
+        source_docs = result.get("source_documents")
 
-# ================== PAGE ==================
-st.set_page_config(
-    page_title="AI Health Buddy 🩺",
-    page_icon="🩺",
-    layout="centered"
-)
+        if not source_docs:
+            answer = "ขออภัย ข้อมูลในระบบไม่เพียงพอสำหรับการแนะนำ"
+        else:
+            answer = result.get("result") or result.get("answer")
 
-st.title("🩺 AI Health Buddy")
+    except Exception as e:
+        answer = f"เกิดข้อผิดพลาด: {e}"
 
-# ================== CHECK API KEY ==================
-if not GROQ_API_KEY:
-    st.error("❌ ไม่พบ GROQ_API_KEY")
-    st.stop()
+    history.append((message, answer))
+    return history
 
-# ================== SESSION ==================
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {
-            "role": "assistant",
-            "content": "สวัสดีครับ 😊 ผมคือ AI Health Buddy\nมีอาการอะไรให้ผมช่วยแนะนำได้บ้างครับ?"
-        }
-    ]
+with gr.Blocks() as demo:
+    gr.Markdown("# 🩺 AI Health Buddy")
+    chatbot = gr.Chatbot()
+    msg = gr.Textbox(placeholder="พิมพ์อาการของคุณ...")
+    clear = gr.Button("Clear")
 
-if "qa" not in st.session_state:
-    st.session_state.qa = None  # 🔥 ยังไม่โหลดทันที
+    msg.submit(respond, [msg, chatbot], chatbot)
+    clear.click(lambda: [], None, chatbot)
 
-# ================== SHOW CHAT ==================
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-
-# ================== INPUT ==================
-if prompt := st.chat_input("พิมพ์คำถามเกี่ยวกับสุขภาพ..."):
-
-    # แสดงฝั่ง user
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    # 🔥 โหลด chain ครั้งแรกตอนมีคำถาม
-    if st.session_state.qa is None:
-        with st.spinner("🚀 กำลังเตรียมระบบครั้งแรก..."):
-            from src.chain import build_chain
-            st.session_state.qa = build_chain(api_key=GROQ_API_KEY)
-
-    # ตอบกลับ
-    with st.chat_message("assistant"):
-        with st.spinner("🧠 กำลังวิเคราะห์อาการ..."):
-            try:
-                result = st.session_state.qa.invoke({"query": prompt})
-
-                source_docs = result.get("source_documents")
-
-                if not source_docs:
-                    answer = "ขออภัย ข้อมูลในระบบไม่เพียงพอสำหรับการแนะนำ"
-                else:
-                    answer = result.get("result") or result.get("answer")
-
-            except Exception as e:
-                answer = f"❌ เกิดข้อผิดพลาด: {e}"
-
-            st.markdown(answer)
-
-    st.session_state.messages.append({"role": "assistant", "content": answer})
-
-st.divider()
-st.caption("⚠️ ข้อมูลนี้เป็นเพียงคำแนะนำเบื้องต้น ไม่ใช่การวินิจฉัยทางการแพทย์")
+demo.launch(server_name="0.0.0.0", server_port=7860)
