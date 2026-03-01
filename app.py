@@ -1,34 +1,86 @@
-import os
 import gradio as gr
-from src.chain import build_chain
+import os
+from dotenv import load_dotenv
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+# คำสั่งนี้แหละที่จะไปปลุกไฟล์ .env ให้ทำงาน
+load_dotenv(override=True)
 
-qa = build_chain(api_key=GROQ_API_KEY)
+# ... (โค้ด LangChain อื่นห ของคุณอยู่ต่อจากตรงนี้) ...
 
-def respond(message, history):
+from langchain_groq import ChatGroq
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain.chains import create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.prompts import ChatPromptTemplate
+
+# ================== 1. ตั้งค่าสมอง AI และ RAG Logic ==================
+def initialize_system():
+    my_key = os.getenv("GROQ_API_KEY")
+    print("🔍 เช็คกุญแจที่อ่านได้:", my_key)
+
+    # 2. บังคับยัดตัวแปร api_key ให้ ChatGroq ตรงๆ เลย
+    llm = ChatGroq(
+        api_key=my_key,
+        model_name="llama-3.3-70b-versatile", 
+        temperature=0.2
+    )
+    # เชื่อมต่อ Vector DB ที่มีอยู่แล้ว
+    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    db = Chroma(persist_directory="./chroma_db", embedding_function=embeddings)
+    
+    # ดึงข้อมูลมาใช้อ้างอิง
+    retriever = db.as_retriever(search_kwargs={"k": 2})
+    
+    # System Prompt Design: ออกแบบบุคลิกและตั้งกฎเหล็ก
+    system_prompt = (
+        "คุณคือ 'AI Health Buddy' เภสัชกรอัจฉริยะที่คอยดูแลผู้สูงอายุ\n"
+        "บุคลิกภาพ (Persona): คุณเป็นเด็กวัยรุ่นที่เชี่ยวชาญเรื่องยา นิสัยอ่อนโยน เป็นห่วงเป็นใย\n"
+        "กฎการใช้สรรพนาม (สำคัญมาก):\n"
+        "- ห้ามเรียกผู้ใช้ว่า 'คุณหลาน' เด็ดขาด\n"
+        "- ให้ใช้คำแทนตัวเอง (ฉัน) ว่า 'หลาน' หรือ 'หนู'\n"
+        "- ให้เรียกผู้ใช้งาน (คุณ) ว่า 'คุณตา/คุณยาย' หรือ 'คุณลุง/คุณป้า'\n\n"
+        "กฎการตอบ:\n"
+        "1. ใช้ภาษาที่สุภาพ เข้าใจง่าย เหมือนลูกหลานคุยกับผู้ใหญ่\n"
+        "2. ต้องใช้ข้อมูลจาก Context ด้านล่างนี้มาตอบเท่านั้น ห้ามเดาข้อมูลยาเอง\n"
+        "3. ห้ามวินิจฉัยโรคเองรุนแรง ให้แนะนำไปพบแพทย์\n\n"
+        "Context ข้อมูลยา:\n"
+        "{context}\n"
+    )
+    
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        ("human", "คำถาม: {input}")
+    ])
+    
+    # สร้าง Chain
+    question_answer_chain = create_stuff_documents_chain(llm, prompt)
+    rag_chain = create_retrieval_chain(retriever, question_answer_chain)
+    
+    return rag_chain
+
+qa_chain = initialize_system()
+
+# ================== 2. ฟังก์ชันรับส่งข้อความแชท ==================
+def chat_with_bot(message, history):
     try:
-        result = qa.invoke({"query": message})
-        source_docs = result.get("source_documents")
-
-        if not source_docs:
-            answer = "ขออภัย ข้อมูลในระบบไม่เพียงพอสำหรับการแนะนำ"
-        else:
-            answer = result.get("result") or result.get("answer")
-
+        response = qa_chain.invoke({"input": message})
+        return response["answer"]
     except Exception as e:
-        answer = f"เกิดข้อผิดพลาด: {e}"
+        return f"❌ ขออภัยครับ หลานมีปัญหาในการเชื่อมต่อข้อมูล: {e}"
 
-    history.append((message, answer))
-    return history
+# ================== 3. สร้าง UI ด้วย Gradio ==================
+demo = gr.ChatInterface(
+    fn=chat_with_bot,
+    title="🩺 AI Health Buddy",
+    description="ผู้ช่วยเภสัชกรส่วนตัวสำหรับคุณตาคุณยาย ถามข้อมูลยาและอาการเบื้องต้นได้เลยครับ",
+    examples=[
+        "มียาอะไรช่วยลดความดันได้บ้าง?",
+        "ลืมกินยาเบาหวานตอนเช้า ทำยังไงดี?",
+        "ยา Ibuprofen คนแก่กินได้ไหม?"
+    ]
+    # ลบคำว่า theme="soft" ออกไปแล้วครับ
+)
 
-with gr.Blocks() as demo:
-    gr.Markdown("# 🩺 AI Health Buddy")
-    chatbot = gr.Chatbot()
-    msg = gr.Textbox(placeholder="พิมพ์อาการของคุณ...")
-    clear = gr.Button("Clear")
-
-    msg.submit(respond, [msg, chatbot], chatbot)
-    clear.click(lambda: [], None, chatbot)
-
-demo.launch(server_name="0.0.0.0", server_port=7860)
+if __name__ == "__main__":
+    demo.launch(share=False)
